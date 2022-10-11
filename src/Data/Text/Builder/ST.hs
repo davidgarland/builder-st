@@ -1,10 +1,16 @@
 module Data.Text.Builder.ST
-  ( fromChar
+  ( Builder
+  , fromChar
+  , fromString
   , fromText
-  , runBuilder
+  , fromAddr
+  , toText
+  , toByteString
   ) where
 
 import Control.Monad.ST
+import Data.ByteString qualified as B
+import Data.ByteString.Internal (ByteString (..))
 import Data.Char
 import Data.String
 import Data.Text ()
@@ -12,21 +18,33 @@ import Data.Text.Array (Array (ByteArray))
 import Data.Text.Internal (Text (..), text)
 import Data.Text.Internal.Encoding.Utf8
 import GHC.Exts
+import GHC.ForeignPtr
 import GHC.ST (ST (..))
 import GHC.Word (Word8 (..))
-
-unI# :: Int -> Int#
-unI# (I# i) = i
-{-# INLINE unI# #-}
+import GHC.IO (IO (..), unsafePerformIO)
 
 type Buf s = (# Int#, MutableByteArray# s #)
 
-newBuf :: Int# -> Int# -> State# s -> (# State# s, Buf s #)
-newBuf len cap s =
-  let !(# s', arr #) = newByteArray# cap s in
-  (# s', (# len, arr #) #)
-{-# INLINE newBuf #-}
+newtype Builder
+  = Builder (forall s. Buf s -> State# s -> (# State# s, Buf s #))
 
+instance IsString Builder where
+  fromString = foldMap fromChar
+
+instance Show Builder where
+  show = show . toText
+
+instance Semigroup Builder where
+  Builder l <> Builder r = Builder $ \buf s ->
+    case l buf s of
+      (# s', buf' #) -> r buf' s'
+  {-# INLINE (<>) #-}
+
+instance Monoid Builder where
+  mempty = Builder (\buf s -> (# s, buf #))
+  {-# INLINE mempty #-}
+
+-- | A builder that appends a `Char`.
 fromChar :: Char -> Builder
 fromChar !c = Builder $ go (unI# $ utf8Length c) c
   where
@@ -62,6 +80,7 @@ fromChar !c = Builder $ go (unI# $ utf8Length c) c
         let s'' = copyMutableByteArray# arr 0# arr' 0# len s' in
         go cl c buf' s''
 
+-- | A builder that appends a `Text`.
 fromText :: Text -> Builder
 fromText (Text (ByteArray t_arr) (I# t_off) (I# t_len)) = Builder $ go t_arr t_off t_len
   where
@@ -74,29 +93,47 @@ fromText (Text (ByteArray t_arr) (I# t_off) (I# t_len)) = Builder $ go t_arr t_o
         let s'' = copyMutableByteArray# arr 0# arr' 0# len s' in
         go t_arr t_off t_len buf' s''
 
-newtype Builder
-  = Builder (forall s. Buf s -> State# s -> (# State# s, Buf s #))
+-- | A builder that appends a raw null-terminated UTF-8 `Addr#`.
+fromAddr :: Addr# -> Builder
+fromAddr a = Builder $ go a (cstringLength# a)
+  where
+    go :: Addr# -> Int# -> Buf s -> State# s -> (# State# s, Buf s #)
+    go a al (# len, arr #) s
+      | isTrue# (len +# al <=# sizeofMutableByteArray# arr) =
+        (# copyAddrToByteArray# a arr len al s, (# len +# al, arr #) #)
+      | otherwise =
+        let !(# s', buf'@(# _, arr' #) #) = newBuf len (sizeofMutableByteArray# arr *# 2#) s in
+        let s'' = copyMutableByteArray# arr 0# arr' 0# len s' in
+        go a al buf' s''
 
-instance IsString Builder where
-  fromString = foldMap fromChar
-
-instance Show Builder where
-  show = show . runBuilder
-
-instance Semigroup Builder where
-  Builder l <> Builder r = Builder $ \buf s ->
-    case l buf s of
-      (# s', buf' #) -> r buf' s'
-  {-# INLINE (<>) #-}
-
-instance Monoid Builder where
-  mempty = Builder (\buf s -> (# s, buf #))
-  {-# INLINE mempty #-}
-
-runBuilder :: Builder -> Text
-runBuilder (Builder b) = runST $ ST (\s ->
+-- | Convert a builder to `Text`.
+toText :: Builder -> Text
+toText (Builder b) = runST $ ST (\s ->
   let !(# s', buf #) = newBuf 0# 32# s in
   let !(# s'', (# len, arr #) #) = b buf s' in
   let !(# s''', arr' #) = unsafeFreezeByteArray# arr s'' in
   (# s''', text (ByteArray arr') 0 (I# len) #))
+
+-- | Convert a builder to a `ByteString`.
+toByteString :: Builder -> ByteString
+toByteString (Builder b) = unsafePerformIO $ IO (\s ->
+  let !(# s', buf #) = newBuf 0# 32# s in
+  let !(# s'', (# len, arr #) #) = b buf s' in
+  let !(# s''', arr' #) = unsafeFreezeByteArray# arr s'' in
+  (# s''', BS (ForeignPtr (byteArrayContents# arr') (PlainPtr arr)) (I# len) #))
+
+{-
+-- Internal Utility Functions
+-}
+
+newBuf :: Int# -> Int# -> State# s -> (# State# s, Buf s #)
+newBuf len cap s =
+  let !(# s', arr #) = newByteArray# cap s in
+  (# s', (# len, arr #) #)
+{-# INLINE newBuf #-}
+
+unI# :: Int -> Int#
+unI# (I# i) = i
+{-# INLINE unI# #-}
+
 

@@ -56,8 +56,10 @@ library
     ghc-options: -Wall -Wno-name-shadowing -O2
     -- -ddump-simpl -dsuppress-all -dsuppress-uniques -ddump-to-file
     build-depends: base
+                 , bytestring
                  , text >= 2.0.1
     default-extensions: BangPatterns
+                      , ImportQualifiedPost
                       , MagicHash
                       , RankNTypes
                       , UnboxedTuples
