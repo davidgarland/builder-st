@@ -11,6 +11,7 @@ import Data.Text.Array (Array (..))
 import Data.Text.Internal (Text (..))
 import GHC.Exts
 
+-- | Create a `TextBuilder` from a `Text`.
 fromText :: Text -> TextBuilder
 fromText (Text (ByteArray t_arr) (I# t_off) (I# t_len)) = TextBuilder $ go t_arr t_off t_len
   where

@@ -35,6 +35,15 @@ newBuf# len cap s =
   (# s', (# len, arr #) #)
 {-# INLINE newBuf# #-}
 
+{-
+require# :: Int# -> Buf# s -> State# s -> (# State# s, Buf# s #)
+require# l buf@(# len, arr #) s
+  | isTrue# (l +# len <# sizeOfMutableArray# arr #) = (# s, buf #)
+  | otherwise = undefined
+{-# INLINE require# #-}
+
+-}
+
 -- | An efficient `ByteString` builder.
 newtype ByteBuilder = ByteBuilder (forall s. Buf# s -> State# s -> (# State# s, Buf# s #))
   deriving (IsString) via TextBuilder

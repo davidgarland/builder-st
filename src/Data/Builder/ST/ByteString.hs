@@ -38,6 +38,24 @@ fromWord8 :: Word8 -> ByteBuilder
 fromWord8 (W8# w) = fromWord8# w
 {-# INLINE fromWord8 #-}
 
+fromWord16Le# :: Word16# -> ByteBuilder
+fromWord16Le# w = fromWord8# (wordToWord8# (word16ToWord# w))
+               <> fromWord8# (wordToWord8# (word16ToWord# (uncheckedShiftRLWord16# w 8#)))
+{-# INLINE fromWord16Le# #-}
+
+fromWord16Le :: Word16 -> ByteBuilder
+fromWord16Le (W16# w) = fromWord16Le# w
+{-# INLINE fromWord16Le #-}
+
+fromWord16Be# :: Word16# -> ByteBuilder
+fromWord16Be# w = fromWord8# (wordToWord8# (word16ToWord# (uncheckedShiftRLWord16# w 8#)))
+               <> fromWord8# (wordToWord8# (word16ToWord# w))
+{-# INLINE fromWord16Be# #-}
+
+fromWord16Be :: Word16 -> ByteBuilder
+fromWord16Be (W16# w) = fromWord16Be# w
+{-# INLINE fromWord16Be #-}
+
 -- | Create a `ByteBuilder` that appends a `ByteString`.
 fromByteString :: ByteString -> ByteBuilder
 fromByteString (BS (ForeignPtr a _) (I# al)) = ByteBuilder $ go a al
